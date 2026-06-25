@@ -179,3 +179,51 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+# ----------------------------------------------------------------------
+# Copilot Remote
+# ----------------------------------------------------------------------
+
+# Python virtualenv
+.venv/
+venv/
+
+# Python env file
+.env
+.env.*
+
+# SQLite databases (created at runtime)
+*.db
+*.sqlite
+*.sqlite3
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.cache/
+.vite/
+
+# Frontend build output is bundled into backend/frontend_dist
+frontend_dist/
+
+# Logs
+*.log
+logs/
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.iml
