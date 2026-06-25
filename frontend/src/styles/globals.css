@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  background-color: #0a0a0a;
+  color: #e5e5e5;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
