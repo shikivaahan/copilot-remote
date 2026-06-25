@@ -1,0 +1,30 @@
+[Unit]
+Description=Copilot Remote - self-hosted remote terminal for GitHub Copilot CLI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=USER_PLACEHOLDER
+Group=USER_PLACEHOLDER
+WorkingDirectory=/opt/copilot-remote
+Environment="COPILOT_REMOTE_CONFIG=/etc/copilot-remote/config.yaml"
+Environment="COPILOT_REMOTE_ENVIRONMENT=production"
+ExecStart=/opt/copilot-remote/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/copilot-remote
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target
