@@ -14,12 +14,14 @@ const DOT_COLOR: Record<SessionStatus, string> = {
   running: "bg-emerald-500",
   exited: "bg-amber-400",
   errored: "bg-rose-500",
+  stopped: "bg-neutral-500",
 };
 
 const TEXT_COLOR: Record<SessionStatus, string> = {
   running: "text-emerald-300",
   exited: "text-amber-300",
   errored: "text-rose-300",
+  stopped: "text-neutral-300",
 };
 
 const SIZE_DOT: Record<NonNullable<StatusDotProps["size"]>, string> = {
@@ -29,8 +31,7 @@ const SIZE_DOT: Record<NonNullable<StatusDotProps["size"]>, string> = {
 
 /**
  * Small colored status indicator used by the dashboard and the session
- * page. Green = running, yellow = exited (process ended cleanly), red =
- * errored (tmux / process failure).
+ * page. Green = running, yellow = exited, red = errored, neutral = stopped.
  */
 export default function StatusDot({
   status,

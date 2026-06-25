@@ -95,16 +95,25 @@ cd ../backend
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-Expose via Tailscale only:
+Expose via Tailscale Serve only:
 ```bash
 # On the laptop:
 sudo tailscale up
-tailscale ip  # note the 100.x IP
+tailscale serve --bg 8000
+tailscale serve status
 ```
 
 On the phone, install the Tailscale app, log in, then open
-`http://100.x.y.z:8000/` in Safari (iOS) or Chrome (Android). Use "Add to
-Home Screen" to install the PWA.
+the HTTPS URL shown by `tailscale serve status` in Safari (iOS) or Chrome
+(Android). Use "Add to Home Screen" to install the PWA.
+
+Why Serve instead of direct `http://100.x.y.z:8000/`?
+
+* The backend should stay bound to `127.0.0.1`; Serve proxies it privately to
+  authenticated tailnet devices.
+* PWA service workers and production `Secure` cookies require a secure context.
+  Tailscale Serve gives the phone an HTTPS URL without exposing the app to the
+  public internet.
 
 ### systemd
 
@@ -119,7 +128,7 @@ journalctl -u copilot-remote -f   # follow logs
 
 ## Security model
 
-* Bind to `127.0.0.1`; expose only via Tailscale.
+* Bind to `127.0.0.1`; expose only via Tailscale Serve.
 * `session_secret` must be at least 16 characters (>= 64 recommended);
   generate with `openssl rand -hex 32`.
 * Bcrypt password hash (cost 12).
@@ -140,7 +149,7 @@ See `config.example.yaml` for the full schema. Key options:
 
 | Path | Default | Notes |
 |------|---------|-------|
-| `bind` | `127.0.0.1` | Listen address. **Do not** bind to 0.0.0.0. |
+| `bind` | `127.0.0.1` | Listen address. **Do not** bind to 0.0.0.0; use Tailscale Serve. |
 | `port` | `8000` | Listen port. |
 | `database_url` | `sqlite:///./copilot_remote.db` | SQLAlchemy URL. |
 | `session_secret` | — (required) | itsdangerous salt. **Generate with `openssl rand -hex 32`**. |
@@ -165,9 +174,9 @@ underscore: `COPILOT_REMOTE_SESSION__OUTPUT_BUFFER_BYTES=131072`.
 | GET | `/api/sessions` | ✓ | — | List sessions |
 | POST | `/api/sessions` | ✓ | ✓ | Create session |
 | GET | `/api/sessions/{id}` | ✓ | — | Get one session |
-| DELETE | `/api/sessions/{id}` | ✓ | ✓ | Kill session |
-| POST | `/api/sessions/{id}/stop` | ✓ | ✓ | Mark stopped (DB only) |
-| POST | `/api/sessions/{id}/restart` | ✓ | ✓ | Kill + new |
+| DELETE | `/api/sessions/{id}` | ✓ | ✓ | Kill tmux if present, remove row |
+| POST | `/api/sessions/{id}/stop` | ✓ | ✓ | Kill tmux, keep row as `stopped` |
+| POST | `/api/sessions/{id}/restart` | ✓ | ✓ | Kill old session, return replacement |
 | GET | `/api/sessions/{id}/preview` | ✓ | — | Last 4KB of PTY output |
 | GET | `/api/sessions/{id}/health` | ✓ | — | Status + active connections |
 | GET | `/api/repos` | ✓ | — | Allowed repos |
@@ -176,7 +185,7 @@ underscore: `COPILOT_REMOTE_SESSION__OUTPUT_BUFFER_BYTES=131072`.
 
 ## WebSocket protocol
 
-### Wire format (single socket per session)
+### Wire format
 
 * **Binary frames** carry terminal I/O. Client-to-server: typed by user
   (xterm.js `onData`). Server-to-client: PTY stdout. **No protocol
@@ -186,8 +195,28 @@ underscore: `COPILOT_REMOTE_SESSION__OUTPUT_BUFFER_BYTES=131072`.
     `{"type": "signal", "name": "SIGINT"|"SIGTERM"|"SIGHUP"}`,
     `{"type": "ping"}`.
   * Server → Client: `{"type": "pong"}`,
-    `{"type": "status", "state": "running"|"exited"|"errored"}`,
+    `{"type": "status", "state": "running"|"exited"|"errored"|"stopped"}`,
     `{"type": "error", "message": "..."}`.
+
+## Session lifecycle
+
+Sessions are stored in SQLite and backed by tmux. On backend startup, the
+manager hydrates rows from the database and reconciles them with live tmux
+sessions, so a browser can reconnect after the backend restarts. Output preview
+buffers are in memory, so previews start fresh after a backend restart.
+
+Status values:
+
+| Status | Meaning |
+|--------|---------|
+| `running` | tmux session exists and the command process is alive |
+| `exited` | persisted session remains, but the command/tmux session has ended |
+| `stopped` | user stopped the session; row remains for status/history |
+| `errored` | backend could not create or attach the session cleanly |
+
+`session.multi_attach: shared` allows multiple browser tabs to attach to the
+same tmux session. `reject` returns a policy error when another tab is already
+attached.
 
 ## Non-goals
 
@@ -209,6 +238,18 @@ cd frontend
 npm run typecheck
 npm test -- --run
 npm run build
+```
+
+Manual release smoke:
+```bash
+# From the phone over the Tailscale Serve HTTPS URL:
+# 1. Log in.
+# 2. Create a bash session.
+# 3. Type commands, use Tab/arrows/Ctrl-C/Ctrl-D, and resize the phone.
+# 4. Disconnect/reconnect the browser and confirm the same tmux session returns.
+# 5. Restart the backend service and reconnect to the existing session.
+# 6. If GitHub Copilot CLI is locally installed and authenticated, create a
+#    copilot session and verify `/help` renders in the remote terminal.
 ```
 
 ## License

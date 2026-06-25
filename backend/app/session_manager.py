@@ -30,6 +30,7 @@ from typing import Deque, Optional, Tuple
 import ptyprocess
 from ptyprocess import PtyProcess
 from sqlmodel import Session as SQLModelSession
+from sqlmodel import select
 
 from . import pty_backend
 from .config import get_settings, validate_command, validate_repo
@@ -56,7 +57,7 @@ class LiveSession:
     name: str
     repo: str
     command: str
-    status: str = "running"  # running | exited | errored
+    status: str = "running"  # running | exited | errored | stopped
     created_at: datetime = field(default_factory=_utcnow)
     last_activity_at: datetime = field(default_factory=_utcnow)
     pid: int = 0
@@ -83,6 +84,7 @@ class SessionManager:
 
     async def start(self) -> None:
         """Start the background status poller."""
+        await self.hydrate()
         if self._poller_task is None or self._poller_task.done():
             self._stop_event.clear()
             self._poller_task = asyncio.create_task(self._status_loop())
@@ -96,6 +98,54 @@ class SessionManager:
                 await self._poller_task
             except (asyncio.CancelledError, Exception):
                 pass
+
+    async def hydrate(self) -> None:
+        """Rebuild the in-memory registry from persisted rows and tmux state."""
+        with _db() as db:
+            rows = list(db.exec(select(SessionRow)).all())
+
+        hydrated: list[LiveSession] = []
+        changed: list[LiveSession] = []
+        for row in rows:
+            status = row.status
+            if status != "stopped":
+                try:
+                    tmux_alive = await asyncio.to_thread(pty_backend.is_alive, row.id)
+                    proc_alive = (
+                        await asyncio.to_thread(pty_backend.is_process_alive, row.id)
+                        if tmux_alive
+                        else False
+                    )
+                except Exception:
+                    tmux_alive = False
+                    proc_alive = False
+
+                if tmux_alive and proc_alive:
+                    status = "running"
+                elif tmux_alive:
+                    status = "exited"
+                elif row.status == "running":
+                    status = "exited"
+
+            sess = LiveSession(
+                id=row.id,
+                name=row.name,
+                repo=row.repo,
+                command=row.command,
+                status=status,
+                created_at=row.created_at,
+                last_activity_at=row.last_activity_at,
+                pid=row.pid or 0,
+            )
+            hydrated.append(sess)
+            if status != row.status:
+                changed.append(sess)
+
+        async with self._lock:
+            self._sessions = {sess.id: sess for sess in hydrated}
+
+        for sess in changed:
+            self._update_db_status(sess)
 
     # --- CRUD -------------------------------------------------------------
 
@@ -149,31 +199,33 @@ class SessionManager:
             return list(self._sessions.values())
 
     async def stop(self, session_id: str) -> None:
-        """Mark the session as stopped (DB only). Does not kill tmux."""
+        """Stop the tmux session while preserving the persisted session row."""
         async with self._lock:
             sess = self._sessions.get(session_id)
         if sess is None:
             return
+        try:
+            await asyncio.to_thread(pty_backend.kill_session, session_id)
+        except Exception:
+            pass
         async with sess.lock:
-            sess.status = "errored"
+            sess.status = "stopped"
+            sess.active_connections = 0
             sess.last_activity_at = _utcnow()
         self._update_db_status(sess)
 
     async def kill(self, session_id: str) -> None:
-        """Irreversibly kill the tmux session and remove from registry."""
+        """Irreversibly kill the tmux session and remove the persisted row."""
         async with self._lock:
-            sess = self._sessions.get(session_id)
-            if sess is not None:
-                del self._sessions[session_id]
-        if sess is None:
-            return
-        await asyncio.to_thread(pty_backend.kill_session, session_id)
+            self._sessions.pop(session_id, None)
+        try:
+            await asyncio.to_thread(pty_backend.kill_session, session_id)
+        except Exception:
+            pass
         with _db() as db:
             row = db.get(SessionRow, session_id)
             if row is not None:
-                row.status = "errored"
-                row.last_activity_at = _utcnow()
-                db.add(row)
+                db.delete(row)
                 db.commit()
 
     async def restart(self, session_id: str) -> LiveSession:
@@ -201,19 +253,26 @@ class SessionManager:
         if sess is None:
             raise KeyError(session_id)
 
-        settings = get_settings()
-        if (
-            settings.session.multi_attach == "reject"
-            and sess.active_connections > 0
-        ):
-            raise MultiAttachError("session already attached")
-
-        pty = await asyncio.to_thread(
-            pty_backend.connect, session_id, rows, cols
-        )
         async with sess.lock:
+            settings = get_settings()
+            if sess.status == "stopped":
+                raise pty_backend.PtyError("session is stopped")
+            if (
+                settings.session.multi_attach == "reject"
+                and sess.active_connections > 0
+            ):
+                raise MultiAttachError("session already attached")
             sess.active_connections += 1
             sess.last_activity_at = _utcnow()
+        try:
+            pty = await asyncio.to_thread(
+                pty_backend.connect, session_id, rows, cols
+            )
+        except Exception:
+            async with sess.lock:
+                sess.active_connections = max(0, sess.active_connections - 1)
+                sess.last_activity_at = _utcnow()
+            raise
         return sess, pty
 
     async def disconnect(
@@ -289,6 +348,8 @@ class SessionManager:
         async with self._lock:
             sessions = list(self._sessions.values())
         for sess in sessions:
+            if sess.status == "stopped":
+                continue
             try:
                 alive = await asyncio.to_thread(pty_backend.is_alive, sess.id)
                 proc_alive = await asyncio.to_thread(
@@ -298,8 +359,7 @@ class SessionManager:
                 continue
             new_status = (
                 "running" if (alive and proc_alive)
-                else "exited" if alive
-                else "errored"
+                else "exited"
             )
             async with sess.lock:
                 if sess.status != new_status:

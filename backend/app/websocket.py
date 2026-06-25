@@ -32,7 +32,7 @@ from ptyprocess import PtyProcess
 from fastapi import APIRouter, Cookie, HTTPException, WebSocket, WebSocketDisconnect, status
 
 from .auth import SESSION_COOKIE, unsign_cookie_value
-from .pty_backend import disconnect as pty_disconnect
+from .pty_backend import PtyError
 from .pty_backend import resize as pty_resize
 from .session_manager import MultiAttachError, get_session_manager
 
@@ -104,6 +104,12 @@ async def ws_session(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     except KeyError:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    except PtyError as e:
+        await websocket.send_text(
+            json.dumps({"type": "error", "message": str(e)})
+        )
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 

@@ -190,7 +190,8 @@ export function useTerminal({
             if (
               (msg.state === "running" ||
                 msg.state === "exited" ||
-                msg.state === "errored") &&
+                msg.state === "errored" ||
+                msg.state === "stopped") &&
               onStatusChangeRef.current
             ) {
               onStatusChangeRef.current(msg.state);

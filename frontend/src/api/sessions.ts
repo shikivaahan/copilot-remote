@@ -34,8 +34,8 @@ export function stopSession(id: string): Promise<void> {
   });
 }
 
-export function restartSession(id: string): Promise<void> {
-  return apiFetch<void>(`/api/sessions/${encodeURIComponent(id)}/restart`, {
+export function restartSession(id: string): Promise<SessionOut> {
+  return apiFetch<SessionOut>(`/api/sessions/${encodeURIComponent(id)}/restart`, {
     method: "POST",
   });
 }

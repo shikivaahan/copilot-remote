@@ -208,10 +208,6 @@ def connect(
         "tmux",
         "attach-session",
         "-t", session_id,
-        # Detach other clients first so we become the sole viewer
-        # when multi_attach is "reject". With "shared" this is also
-        # fine; multiple attachers are allowed.
-        "-d",
     ]
     pty = PtyProcess.spawn(argv, dimensions=(rows, cols))
     return pty

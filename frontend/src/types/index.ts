@@ -1,4 +1,4 @@
-export type SessionStatus = "running" | "exited" | "errored";
+export type SessionStatus = "running" | "exited" | "errored" | "stopped";
 
 export interface UserOut {
   id: number;

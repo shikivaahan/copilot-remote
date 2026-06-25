@@ -7,21 +7,19 @@ Wants=network-online.target
 Type=simple
 User=USER_PLACEHOLDER
 Group=USER_PLACEHOLDER
-WorkingDirectory=/opt/copilot-remote
+WorkingDirectory=/opt/copilot-remote/backend
 Environment="COPILOT_REMOTE_CONFIG=/etc/copilot-remote/config.yaml"
 Environment="COPILOT_REMOTE_ENVIRONMENT=production"
-ExecStart=/opt/copilot-remote/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+ExecStart=/opt/copilot-remote/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
-# Hardening
+# Minimal hardening. Do not enable ProtectHome/ProtectSystem=strict here:
+# this service intentionally launches shells inside allowlisted repositories.
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/copilot-remote
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

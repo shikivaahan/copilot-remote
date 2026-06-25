@@ -10,9 +10,12 @@ import time
 import uuid
 
 import pytest
+from sqlmodel import Session as SQLModelSession
 
 from app import pty_backend
 from app.config import get_settings
+from app.database import get_engine
+from app.models import Session as SessionRow
 from app.session_manager import (
     MultiAttachError,
     LiveSession,
@@ -99,6 +102,24 @@ async def test_kill_removes_from_registry(manager):
     await manager.kill(sess.id)
     assert await manager.get(sess.id) is None
     assert pty_backend.is_alive(sess.id) is False
+    with SQLModelSession(get_engine()) as db:
+        assert db.get(SessionRow, sess.id) is None
+
+
+@pytest.mark.asyncio
+async def test_stop_marks_stopped_and_kills_tmux(manager):
+    repo = get_settings().repos[0]
+    cmd = get_settings().commands[0]
+    sess = await manager.create(name="x", repo=repo, command=cmd)
+    await manager.stop(sess.id)
+    stopped = await manager.get(sess.id)
+    assert stopped is not None
+    assert stopped.status == "stopped"
+    assert pty_backend.is_alive(sess.id) is False
+    with SQLModelSession(get_engine()) as db:
+        row = db.get(SessionRow, sess.id)
+        assert row is not None
+        assert row.status == "stopped"
 
 
 @pytest.mark.asyncio
@@ -134,6 +155,29 @@ async def test_connect_reject_mode_blocks_second(manager):
             with pytest.raises(MultiAttachError):
                 await manager.connect(sess.id)
         finally:
+            await manager.disconnect(sess.id, pty1)
+    finally:
+        settings.session.multi_attach = original
+
+
+@pytest.mark.asyncio
+async def test_connect_shared_mode_allows_second_attach(manager):
+    settings = get_settings()
+    original = settings.session.multi_attach
+    settings.session.multi_attach = "shared"
+    try:
+        repo = settings.repos[0]
+        cmd = settings.commands[0]
+        sess = await manager.create(name="x", repo=repo, command=cmd)
+        _, pty1 = await manager.connect(sess.id)
+        _, pty2 = await manager.connect(sess.id)
+        try:
+            s2 = await manager.get(sess.id)
+            assert s2.active_connections == 2
+            assert pty1.isalive()
+            assert pty2.isalive()
+        finally:
+            await manager.disconnect(sess.id, pty2)
             await manager.disconnect(sess.id, pty1)
     finally:
         settings.session.multi_attach = original
@@ -192,6 +236,42 @@ async def test_restart_creates_new_session_with_new_id(manager):
         assert (await manager.get(new_sess.id)) is new_sess
     finally:
         await manager.kill(new_sess.id)
+
+
+@pytest.mark.asyncio
+async def test_hydrate_restores_db_session_with_live_tmux(manager):
+    repo = get_settings().repos[0]
+    cmd = get_settings().commands[0]
+    sess = await manager.create(name="persisted", repo=repo, command=cmd)
+    fresh = SessionManager()
+    await fresh.hydrate()
+    try:
+        hydrated = await fresh.get(sess.id)
+        assert hydrated is not None
+        assert hydrated.name == "persisted"
+        assert hydrated.status == "running"
+        _, pty = await fresh.connect(sess.id)
+        await fresh.disconnect(sess.id, pty)
+    finally:
+        await fresh.kill(sess.id)
+
+
+@pytest.mark.asyncio
+async def test_hydrate_marks_missing_running_tmux_as_exited(manager):
+    repo = get_settings().repos[0]
+    cmd = get_settings().commands[0]
+    sess = await manager.create(name="gone", repo=repo, command=cmd)
+    pty_backend.kill_session(sess.id)
+    fresh = SessionManager()
+    await fresh.hydrate()
+    hydrated = await fresh.get(sess.id)
+    assert hydrated is not None
+    assert hydrated.status == "exited"
+    with SQLModelSession(get_engine()) as db:
+        row = db.get(SessionRow, sess.id)
+        assert row is not None
+        assert row.status == "exited"
+    await fresh.kill(sess.id)
 
 
 @pytest.mark.asyncio

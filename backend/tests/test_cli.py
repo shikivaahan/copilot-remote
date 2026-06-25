@@ -120,6 +120,8 @@ def test_create_user_password_mismatch(tmp_path, monkeypatch, tmp_config_path, c
 
     monkeypatch.setattr(sys, "argv", ["copilot-remote", "create-user"])
     monkeypatch.setattr("sys.stdin", io.StringIO("carol\nfirst\nsecond\n"))
+    passwords = iter(["first", "second"])
+    monkeypatch.setattr("getpass.getpass", lambda prompt: next(passwords))
     rc = cli.main()
     assert rc == 1
     captured = capsys.readouterr()

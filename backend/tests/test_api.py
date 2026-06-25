@@ -188,6 +188,33 @@ def test_delete_session(client):
     assert r.status_code == 204
     r = client.get(f"/api/sessions/{sid}")
     assert r.status_code == 404
+    with SQLModelSession(get_engine()) as db:
+        assert db.get(Session, sid) is None
+
+
+def test_stop_session_kills_tmux_and_preserves_row(client):
+    _login(client)
+    repo = get_settings().repos[0]
+    cmd = get_settings().commands[0]
+    sid = client.post(
+        "/api/sessions",
+        json={"name": "t", "repo": repo, "command": cmd},
+        headers=CSRF,
+    ).json()["id"]
+    r = client.post(f"/api/sessions/{sid}/stop", headers=CSRF)
+    assert r.status_code == 204
+    r = client.get(f"/api/sessions/{sid}")
+    assert r.status_code == 200
+    assert r.json()["status"] == "stopped"
+    r = client.get(f"/api/sessions/{sid}/health")
+    assert r.status_code == 200
+    assert r.json()["tmux_session_exists"] is False
+    assert r.json()["process_alive"] is False
+    with SQLModelSession(get_engine()) as db:
+        row = db.get(Session, sid)
+        assert row is not None
+        assert row.status == "stopped"
+    client.delete(f"/api/sessions/{sid}", headers=CSRF)
 
 
 def test_preview_returns_text(client):
