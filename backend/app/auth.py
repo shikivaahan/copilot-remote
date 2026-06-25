@@ -93,7 +93,7 @@ def set_session_cookie(response: Response, user_id: int) -> None:
         value=sign_cookie_value(user_id),
         max_age=int(COOKIE_MAX_AGE.total_seconds()),
         httponly=True,
-        secure=settings.environment == "production",
+        secure=settings.secure_cookies,
         samesite="strict",
         path="/",
     )

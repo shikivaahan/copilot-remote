@@ -53,6 +53,7 @@ cp ../config.example.yaml ./config.yaml
 #   - bind: 127.0.0.1
 #   - port: 8000
 #   - session_secret: <openssl rand -hex 32>
+#   - secure_cookies: true
 #   - repos: [/path/to/your/project, ...]
 #   - commands: [copilot, bash]
 mkdir -p ../data
@@ -72,10 +73,19 @@ copilot-remote create-user
 
 ### 5. Frontend (dev mode)
 
+In another shell, run the backend with HTTP-only dev cookies:
+```bash
+cd backend
+source .venv/bin/activate
+COPILOT_REMOTE_SECURE_COOKIES=false uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Then start Vite:
 ```bash
 cd ../frontend
 npm install
-npm run dev   # Vite dev server on http://localhost:5173, proxies /api and /ws to :8000
+npm run dev
+# Vite dev server on http://localhost:5173, proxies /api and /ws to :8000.
 ```
 
 ### 6. Frontend (production build)
@@ -153,6 +163,7 @@ See `config.example.yaml` for the full schema. Key options:
 | `port` | `8000` | Listen port. |
 | `database_url` | `sqlite:///./copilot_remote.db` | SQLAlchemy URL. |
 | `session_secret` | — (required) | itsdangerous salt. **Generate with `openssl rand -hex 32`**. |
+| `secure_cookies` | `true` | Keep `true` for HTTPS/Tailscale Serve. Set `COPILOT_REMOTE_SECURE_COOKIES=false` only for local HTTP dev. |
 | `repos` | `[]` | Absolute paths to allowed repo roots. |
 | `commands` | `[]` | Allowed commands. Bare names like `bash` or absolute paths like `/usr/bin/copilot`. |
 | `session.output_buffer_bytes` | `131072` | 128KB ring buffer per session for the dashboard preview. |
@@ -162,6 +173,47 @@ See `config.example.yaml` for the full schema. Key options:
 Equivalent environment variables: prefix with `COPILOT_REMOTE_`, e.g.
 `COPILOT_REMOTE_PORT=9000` overrides `port`. Nested keys use double
 underscore: `COPILOT_REMOTE_SESSION__OUTPUT_BUFFER_BYTES=131072`.
+
+## Launch commands
+
+Production-style local service behind Tailscale Serve:
+```bash
+cd /path/to/copilot-remote/backend
+source .venv/bin/activate
+export COPILOT_REMOTE_CONFIG=/path/to/copilot-remote/backend/config.yaml
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+In another shell:
+```bash
+tailscale serve --bg 8000
+tailscale serve status
+```
+
+HTTP-only local development:
+```bash
+cd /path/to/copilot-remote/backend
+source .venv/bin/activate
+export COPILOT_REMOTE_CONFIG=/path/to/copilot-remote/backend/config.yaml
+export COPILOT_REMOTE_SECURE_COOKIES=false
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+
+cd /path/to/copilot-remote/frontend
+npm run dev
+```
+
+## User flow
+
+1. Open the Tailscale Serve HTTPS URL on your phone.
+2. Log in with the local user created by `copilot-remote create-user`.
+3. Tap `Create session`, pick an allowlisted repository, and choose `copilot`
+   or another allowlisted command.
+4. Open the session card to use the terminal. The helper bar sends Esc, Tab,
+   arrows, slash, Enter, and Ctrl-C/Ctrl-D.
+5. If the phone sleeps or the network changes, reopen the same session; the
+   tmux-backed process keeps running.
+6. Use `Stop` to terminate the tmux session, `Restart` to create a replacement,
+   or `Delete` to remove the saved session row.
 
 ## REST API
 

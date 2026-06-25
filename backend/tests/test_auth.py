@@ -79,39 +79,46 @@ def test_unsign_returns_none_for_garbage(settings) -> None:
 # ---- cookie attributes -----------------------------------------------------
 
 
-def test_set_session_cookie_attributes_dev() -> None:
-    """In development, cookies are HttpOnly + SameSite=Strict but not Secure."""
+def test_set_session_cookie_attributes_secure_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cookies are HttpOnly, SameSite=Strict, signed, and Secure when enabled."""
     from starlette.responses import Response
 
+    monkeypatch.setenv("COPILOT_REMOTE_SECURE_COOKIES", "true")
+    get_settings.cache_clear()
     resp = Response()
-    set_session_cookie(resp, user_id=1)
-    set_cookie = resp.headers["set-cookie"]
-    assert SESSION_COOKIE in set_cookie
-    assert "HttpOnly" in set_cookie
-    assert "SameSite=strict" in set_cookie
-    assert "Secure" not in set_cookie
+    try:
+        set_session_cookie(resp, user_id=1)
+        set_cookie = resp.headers["set-cookie"]
+        assert SESSION_COOKIE in set_cookie
+        assert "HttpOnly" in set_cookie
+        assert "SameSite=strict" in set_cookie
+        assert "Secure" in set_cookie
+    finally:
+        get_settings.cache_clear()
 
 
-def test_set_session_cookie_attributes_prod(
+def test_set_session_cookie_can_disable_secure_for_local_http_dev(
     tmp_path, config_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """In production, cookies also carry the ``Secure`` flag."""
+    """Local HTTP dev can explicitly opt out of Secure cookies."""
     from starlette.responses import Response
 
-    db_path = tmp_path / "prod.db"
+    db_path = tmp_path / "dev.db"
     monkeypatch.setenv("COPILOT_REMOTE_CONFIG", str(config_path))
     monkeypatch.setenv("COPILOT_REMOTE_DATABASE_URL", f"sqlite:///{db_path}")
-    monkeypatch.setenv("COPILOT_REMOTE_ENVIRONMENT", "production")
+    monkeypatch.setenv("COPILOT_REMOTE_SECURE_COOKIES", "false")
     get_settings.cache_clear()
     try:
         Settings(  # type: ignore[call-arg]
             database_url=f"sqlite:///{db_path}",
-            environment="production",
+            secure_cookies=False,
         )
         resp = Response()
         set_session_cookie(resp, user_id=1)
         set_cookie = resp.headers["set-cookie"]
-        assert "Secure" in set_cookie
+        assert "Secure" not in set_cookie
         assert "SameSite=strict" in set_cookie
     finally:
         get_settings.cache_clear()

@@ -21,17 +21,22 @@ running.
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import logging
 import os
+import select
 import signal
 from typing import Optional
 
 import ptyprocess
 from ptyprocess import PtyProcess
 from fastapi import APIRouter, Cookie, HTTPException, WebSocket, WebSocketDisconnect, status
+from sqlmodel import Session as SQLModelSession
 
 from .auth import SESSION_COOKIE, unsign_cookie_value
+from .database import get_engine
+from .models import User
 from .pty_backend import PtyError
 from .pty_backend import resize as pty_resize
 from .session_manager import MultiAttachError, get_session_manager
@@ -47,8 +52,15 @@ _CSRF_EXEMPT_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 def _is_websocket_authenticated(cr_session: Optional[str]) -> bool:
-    """True iff the cookie unsigns to a known user id (any int)."""
-    return unsign_cookie_value(cr_session or "") is not None
+    """True iff the cookie unsigns to an existing user row."""
+    user_id = unsign_cookie_value(cr_session or "")
+    if user_id is None:
+        return False
+    try:
+        with SQLModelSession(get_engine()) as session:
+            return session.get(User, user_id) is not None
+    except Exception:
+        return False
 
 
 @router.websocket("/ws/sessions/{session_id}")
@@ -80,19 +92,24 @@ async def ws_session(
     # checks (e.g. browser WS library liveness probes) work even
     # before the resize.
     rows, cols = 24, 80
+    initial_bytes: bytes | None = None
     try:
-        first = await asyncio.wait_for(websocket.receive_text(), timeout=2.0)
-        msg = json.loads(first)
-        if msg.get("type") == "resize":
-            rows = int(msg.get("rows") or rows)
-            cols = int(msg.get("cols") or cols)
-        elif msg.get("type") == "ping":
-            try:
-                await websocket.send_text(json.dumps({"type": "pong"}))
-            except Exception:
-                pass
-        # else: unknown — discard and let the pump pick up the next frame.
-    except (asyncio.TimeoutError, json.JSONDecodeError, ValueError):
+        first = await asyncio.wait_for(websocket.receive(), timeout=2.0)
+        if first.get("type") == "websocket.receive":
+            if first.get("bytes") is not None:
+                initial_bytes = first["bytes"]
+            elif first.get("text") is not None:
+                msg = json.loads(first["text"])
+                if msg.get("type") == "resize":
+                    rows = int(msg.get("rows") or rows)
+                    cols = int(msg.get("cols") or cols)
+                elif msg.get("type") == "ping":
+                    try:
+                        await websocket.send_text(json.dumps({"type": "pong"}))
+                    except Exception:
+                        pass
+                # else: unknown — discard and let the pump pick up the next frame.
+    except (asyncio.TimeoutError, json.JSONDecodeError, ValueError, RuntimeError):
         pass
 
     try:
@@ -123,6 +140,14 @@ async def ws_session(
             }
         )
     )
+    if initial_bytes:
+        try:
+            pty.write(initial_bytes)
+            await mgr.ping_activity(session_id)
+        except (OSError, ValueError):
+            await mgr.disconnect(session_id, pty)
+            await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+            return
 
     pty_to_ws = asyncio.create_task(_pump_pty_to_ws(websocket, pty, session_id, mgr))
     ws_to_pty = asyncio.create_task(_pump_ws_to_pty(websocket, pty, session_id, mgr))
@@ -155,7 +180,9 @@ async def _pump_pty_to_ws(
     try:
         while True:
             data = await loop.run_in_executor(None, _read_pty, pty)
-            if not data:
+            if data is None:
+                continue
+            if data == b"":
                 # PTY closed -> tmux session likely ended or we got detached.
                 break
             logger.debug("pty->ws: %d bytes", len(data))
@@ -248,22 +275,27 @@ async def _handle_control(
     return True
 
 
-def _read_pty(pty: PtyProcess, timeout: float = 0.1) -> bytes:
-    """Blocking PTY read with a small timeout; returns b'' on timeout/EOF.
+def _read_pty(pty: PtyProcess, timeout: float = 0.1) -> bytes | None:
+    """Read PTY bytes without blocking an executor thread indefinitely.
 
-    We use a thread-pool-friendly timeout so the asyncio event loop is
-    not blocked. ptyprocess exposes a file descriptor which we read
-    non-blockingly via ``os.read``.
+    Returns ``None`` on timeout/no data, ``b""`` on EOF, and bytes when output
+    is available.
     """
     if not pty.isalive():
         return b""
     try:
-        # ``pty.read`` blocks. To avoid blocking the executor forever,
-        # we read with a short poll and rely on the loop to await us.
-        # This is best-effort; the next iteration will read more.
-        data = pty.read(4096)
+        ready, _, _ = select.select([pty.fd], [], [], timeout)
+        if not ready:
+            return None
+        data = os.read(pty.fd, 4096)
         return data or b""
     except EOFError:
+        return b""
+    except BlockingIOError:
+        return None
+    except OSError as e:
+        if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+            return None
         return b""
     except Exception:
         return b""

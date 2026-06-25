@@ -79,43 +79,44 @@ describe("MobileKeyboard", () => {
     expect(h.onArrow).toHaveBeenNthCalledWith(3, "right");
   });
 
-  it("toggles Ctrl mode, sends Ctrl-letter on next press, then deactivates", () => {
+  it("toggles Ctrl mode and exposes Ctrl-C/Ctrl-D actions", () => {
     const h = makeHandlers();
     render(<MobileKeyboard {...h} />);
 
-    // No Ctrl pressed yet — pressing a letter key should NOT call onCtrl.
-    fireEvent.click(screen.getByTestId("key-slash"));
-    expect(h.onCtrl).not.toHaveBeenCalled();
-
-    // Activate Ctrl mode.
     fireEvent.click(screen.getByTestId("key-ctrl"));
     expect(screen.getByTestId("key-ctrl")).toHaveAttribute(
       "aria-pressed",
       "true",
     );
+    expect(screen.getByTestId("key-ctrl-c")).toBeInTheDocument();
+    expect(screen.getByTestId("key-ctrl-d")).toBeInTheDocument();
 
-    // Next letter key fires onCtrl and auto-deactivates.
-    fireEvent.click(screen.getByTestId("key-slash"));
+    fireEvent.click(screen.getByTestId("key-ctrl-c"));
     expect(h.onCtrl).toHaveBeenCalledTimes(1);
-    expect(h.onCtrl).toHaveBeenCalledWith("/");
+    expect(h.onCtrl).toHaveBeenCalledWith("c");
     expect(screen.getByTestId("key-ctrl")).toHaveAttribute(
       "aria-pressed",
       "false",
     );
-
-    // After auto-deactivation, the same key no longer triggers onCtrl —
-    // it falls through to the normal handler (onSlash).
-    fireEvent.click(screen.getByTestId("key-slash"));
-    expect(h.onCtrl).toHaveBeenCalledTimes(1);
   });
 
-  it("pressing the arrow keys while Ctrl mode is active sends Ctrl-arrow", () => {
+  it("sends Ctrl-D from the Ctrl action row", () => {
+    const h = makeHandlers();
+    render(<MobileKeyboard {...h} />);
+
+    fireEvent.click(screen.getByTestId("key-ctrl"));
+    fireEvent.click(screen.getByTestId("key-ctrl-d"));
+    expect(h.onCtrl).toHaveBeenCalledTimes(1);
+    expect(h.onCtrl).toHaveBeenCalledWith("d");
+  });
+
+  it("pressing a normal key while Ctrl mode is active clears Ctrl and sends the normal key", () => {
     const h = makeHandlers();
     render(<MobileKeyboard {...h} />);
     fireEvent.click(screen.getByTestId("key-ctrl"));
     fireEvent.click(screen.getByTestId("key-arrow-up"));
-    expect(h.onCtrl).toHaveBeenCalledWith("↑");
-    expect(h.onArrow).not.toHaveBeenCalled();
+    expect(h.onCtrl).not.toHaveBeenCalled();
+    expect(h.onArrow).toHaveBeenCalledWith("up");
     expect(screen.getByTestId("key-ctrl")).toHaveAttribute(
       "aria-pressed",
       "false",

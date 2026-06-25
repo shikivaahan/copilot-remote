@@ -30,6 +30,11 @@ const ARROW_DATA: Record<ArrowDir, string> = {
   right: "\x1b[C",
 };
 
+const CTRL_KEYS = [
+  { label: "C", value: "c", testId: "key-ctrl-c", ariaLabel: "Control C" },
+  { label: "D", value: "d", testId: "key-ctrl-d", ariaLabel: "Control D" },
+];
+
 const KEYS: KeyDef[] = [
   {
     label: "Esc",
@@ -48,9 +53,8 @@ const KEYS: KeyDef[] = [
     ariaLabel: "Control (next key sends Ctrl-letter)",
     testId: "key-ctrl",
     className: "ctrl-key",
-    // Pressing the Ctrl button itself does not send any data; it just
-    // activates Ctrl mode. The actual control character is sent by the
-    // next letter key handled by `onCtrl`.
+    // Pressing the Ctrl button itself does not send data; it exposes
+    // explicit Ctrl-C/Ctrl-D actions for mobile keyboards that lack Ctrl.
     onPress: () => undefined,
     isActive: (ctrlActive) => ctrlActive,
   },
@@ -97,30 +101,25 @@ const KEYS: KeyDef[] = [
  * Persistent thumb-friendly keyboard for the session page.
  *
  * Sends the correct escape sequences for arrow keys (ESC [ A/B/C/D),
- * Tab, Enter, Escape, and a slash. Ctrl is a modifier — when active the
- * next letter press fires `onCtrl(letter)`, which the parent forwards as
- * a raw control byte (e.g. `\x03` for Ctrl-C). The modifier auto-clears
- * after one press.
+ * Tab, Enter, Escape, and a slash. Ctrl exposes explicit Ctrl-C/Ctrl-D
+ * actions because mobile software keyboards usually do not have a real
+ * Ctrl modifier.
  */
 export default function MobileKeyboard(props: Props) {
   const [ctrlActive, setCtrlActive] = useState(false);
 
-  function activateCtrl() {
-    setCtrlActive(true);
+  function pressKey(key: KeyDef) {
+    if (key.testId === "key-ctrl") {
+      setCtrlActive((active) => !active);
+      return;
+    }
+    if (ctrlActive) setCtrlActive(false);
+    key.onPress(props, ctrlActive);
   }
 
-  function pressKey(key: KeyDef) {
-    if (ctrlActive && key.label !== "Ctrl") {
-      const letter = key.label.toLowerCase();
-      setCtrlActive(false);
-      props.onCtrl(letter);
-      return;
-    }
-    if (key.testId === "key-ctrl") {
-      activateCtrl();
-      return;
-    }
-    key.onPress(props, ctrlActive);
+  function pressCtrl(value: string) {
+    props.onCtrl(value);
+    setCtrlActive(false);
   }
 
   return (
@@ -133,6 +132,28 @@ export default function MobileKeyboard(props: Props) {
       role="toolbar"
       aria-label="Terminal helper keys"
     >
+      {ctrlActive && (
+        <div className="mb-2 grid grid-cols-2 gap-1.5 sm:gap-2">
+          {CTRL_KEYS.map((key) => (
+            <button
+              key={key.testId}
+              type="button"
+              data-testid={key.testId}
+              aria-label={key.ariaLabel}
+              onClick={() => pressCtrl(key.value)}
+              className={clsx(
+                "min-h-11 inline-flex select-none items-center justify-center",
+                "rounded-md border border-emerald-500 bg-emerald-600",
+                "px-2 py-2 text-base font-semibold text-neutral-950",
+                "transition-colors active:scale-[0.97]",
+                "focus:outline-none focus:ring-2 focus:ring-emerald-500",
+              )}
+            >
+              Ctrl-{key.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div
         className={clsx(
           "grid grid-cols-9 gap-1.5",

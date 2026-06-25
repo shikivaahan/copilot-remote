@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     port: int = 8000
     database_url: str = "sqlite:///./copilot_remote.db"
     session_secret: str
+    secure_cookies: bool = True
     repos: list[str] = Field(default_factory=list)
     commands: list[str] = Field(default_factory=list)
     session: SessionSettings = Field(default_factory=SessionSettings)

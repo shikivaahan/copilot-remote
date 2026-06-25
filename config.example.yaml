@@ -11,6 +11,11 @@ database_url: "sqlite:///./copilot_remote.db"
 # IMPORTANT: generate with `openssl rand -hex 32` for production use.
 session_secret: "change-me-to-a-long-random-string"
 
+# Secure is required for the intended HTTPS/Tailscale Serve deployment.
+# For local HTTP-only frontend development, override with:
+# COPILOT_REMOTE_SECURE_COOKIES=false
+secure_cookies: true
+
 # --- Allowlists ------------------------------------------------------------
 # Only sessions in these repo paths can be created.
 repos:

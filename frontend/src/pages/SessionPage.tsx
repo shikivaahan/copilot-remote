@@ -148,6 +148,18 @@ export default function SessionPage() {
           <StatusDot status={liveStatus} />
           <button
             type="button"
+            onClick={() => terminalRef.current?.focus()}
+            disabled={!canOpenTerminal}
+            className={clsx(
+              "rounded border border-neutral-700 px-3 py-1 text-xs",
+              "text-neutral-200 hover:bg-neutral-800",
+              "disabled:cursor-not-allowed disabled:opacity-50",
+            )}
+          >
+            Open Terminal
+          </button>
+          <button
+            type="button"
             onClick={() => stopMut.mutate(id)}
             disabled={!canOpenTerminal || stopMut.isPending || restartMut.isPending}
             className={clsx(

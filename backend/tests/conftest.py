@@ -41,6 +41,7 @@ def _ensure_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Setting
         "bind: 127.0.0.1\n"
         "port: 8765\n"
         f"session_secret: '{TEST_SECRET}'\n"
+        "secure_cookies: false\n"
         "repos:\n"
         "  - /tmp/repo1\n"
         "  - /tmp/repo2\n"
@@ -56,12 +57,14 @@ def _ensure_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Setting
     monkeypatch.setenv("COPILOT_REMOTE_CONFIG", str(cfg))
     monkeypatch.setenv("COPILOT_REMOTE_DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("COPILOT_REMOTE_ENVIRONMENT", "development")
+    monkeypatch.setenv("COPILOT_REMOTE_SECURE_COOKIES", "false")
     get_settings.cache_clear()
     _db_module._engine = None
     init_db()
     return Settings(  # type: ignore[call-arg]
         database_url=f"sqlite:///{db_path}",
         environment="development",
+        secure_cookies=False,
     )
 
 
@@ -73,6 +76,7 @@ def config_path(tmp_path: Path) -> Path:
         "bind: 127.0.0.1\n"
         "port: 8765\n"
         f"session_secret: '{TEST_SECRET}'\n"
+        "secure_cookies: false\n"
         "repos:\n"
         "  - /tmp/repo1\n"
         "  - /tmp/repo2\n"

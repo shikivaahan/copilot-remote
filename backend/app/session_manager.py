@@ -308,7 +308,22 @@ class SessionManager:
             return ""
         async with sess.lock:
             data = bytes(sess.output_buffer)[-n_bytes:]
-        return data.decode("utf-8", errors="replace")
+        text = data.decode("utf-8", errors="replace")
+        if text.strip():
+            return text
+        try:
+            if sess.status == "running" and await asyncio.to_thread(
+                pty_backend.is_alive, session_id
+            ):
+                pane = await asyncio.to_thread(
+                    pty_backend.capture_pane, session_id, 200
+                )
+                if pane.strip():
+                    pane_bytes = pane.encode("utf-8", errors="replace")[-n_bytes:]
+                    return pane_bytes.decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        return text
 
     async def ping_activity(self, session_id: str) -> None:
         async with self._lock:

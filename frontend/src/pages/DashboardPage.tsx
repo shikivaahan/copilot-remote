@@ -304,9 +304,10 @@ function SessionCard({ session, onStop, onRestart, onDelete }: SessionCardProps)
         <StatusDot status={liveStatus} />
       </header>
 
-      <p className="mt-2 text-xs text-neutral-500">
-        Active {relativeTime(lastActivity)}
-      </p>
+      <div className="mt-2 grid gap-0.5 text-xs text-neutral-500 sm:grid-cols-2">
+        <p>Created {relativeTime(session.created_at)}</p>
+        <p>Active {relativeTime(lastActivity)}</p>
+      </div>
 
       <pre
         className={clsx(

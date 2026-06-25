@@ -20,6 +20,7 @@ def client(tmp_path, monkeypatch):
     db_path = tmp_path / "api_test.db"
     monkeypatch.setenv("COPILOT_REMOTE_DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("COPILOT_REMOTE_SESSION_SECRET", "x" * 64)
+    monkeypatch.setenv("COPILOT_REMOTE_SECURE_COOKIES", "false")
     get_settings.cache_clear()
     # Reset the cached engine so the new env var takes effect.
     _db_module._engine = None

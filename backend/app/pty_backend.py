@@ -187,6 +187,30 @@ def list_sessions() -> List[str]:
     return [s for s in result.stdout.splitlines() if UUID_RE.match(s)]
 
 
+def capture_pane(session_id: str, n_lines: int = 200) -> str:
+    """Return a text snapshot of recent tmux pane output.
+
+    This is only for dashboard/status preview fallback. It is not used for
+    terminal transport, which continues to flow through a real PTY.
+    """
+    _validate_session_id(session_id)
+    lines = max(1, min(int(n_lines), 2000))
+    result = subprocess.run(
+        [
+            "tmux",
+            "capture-pane",
+            "-p",
+            "-t", session_id,
+            "-S", f"-{lines}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise PtyError(f"tmux capture-pane failed: {result.stderr.strip()}")
+    return result.stdout
+
+
 # --- PTY layer (transient) ------------------------------------------------
 
 
