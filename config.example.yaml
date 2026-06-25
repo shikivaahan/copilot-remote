@@ -1,0 +1,35 @@
+# Copilot Remote — example configuration
+# Copy to ./config.yaml and edit. Or set the equivalent COPILOT_REMOTE_* env vars.
+
+# --- Network ---------------------------------------------------------------
+bind: "127.0.0.1"
+port: 8000
+
+# --- Storage ---------------------------------------------------------------
+database_url: "sqlite:///./copilot_remote.db"
+
+# IMPORTANT: generate with `openssl rand -hex 32` for production use.
+session_secret: "change-me-to-a-long-random-string"
+
+# --- Allowlists ------------------------------------------------------------
+# Only sessions in these repo paths can be created.
+repos:
+  - /home/user/projects/SparseIR
+  - /home/user/projects/SolarSailPropagator
+
+# Only these commands can be run as the session process.
+commands:
+  - copilot
+  - bash
+
+# --- Session behaviour -----------------------------------------------------
+session:
+  # Size of the per-session ring buffer feeding the dashboard preview.
+  output_buffer_bytes: 131072       # 128KB
+  # How often the background task refreshes session status.
+  status_poll_interval_seconds: 5
+  # 0 = never expire; otherwise auto-kill sessions idle for N seconds.
+  idle_timeout_seconds: 0
+  # "shared" = multiple browser tabs can attach (default, matches tmux).
+  # "reject" = second attach returns 409.
+  multi_attach: "shared"
