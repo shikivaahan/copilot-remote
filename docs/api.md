@@ -106,9 +106,11 @@ The `id` is the server-generated UUID that is also the `tmux` session name.
 { "id": "0f2f…", "text": "…", "bytes": 4096 }
 ```
 
-Returns at most the last 4096 bytes of the session's output ring buffer.
-When the buffer is empty (for example right after a backend restart) the
-server falls back to `tmux capture-pane`.
+Slices at most 4096 raw bytes from the session's output ring buffer, then
+decodes as UTF-8 with replacement. The reported `bytes` counts the encoded
+response text, so it can exceed 4096 for invalid or split UTF-8 sequences.
+When that text is blank and a running session still exists, the server
+falls back to `tmux capture-pane`, likewise slicing before decoding.
 
 ## WebSocket protocol
 
@@ -131,7 +133,7 @@ refusal it first sends an `error` frame.
 
 | Message | Effect |
 |---------|--------|
-| `{"type": "resize", "rows": int, "cols": int}` | Resize the PTY (`SIGWINCH`). Values must satisfy `0 < rows, cols < 1000`. |
+| `{"type": "resize", "rows": int, "cols": int}` | Resize the PTY (`SIGWINCH`). Subsequent resize controls enforce `0 < rows, cols < 1000`; the initial size negotiation does not apply this bound. |
 | `{"type": "signal", "name": "SIGINT" \| "SIGTERM" \| "SIGHUP"}` | Send the signal to the process group of the attached PTY. |
 | `{"type": "ping"}` | Liveness probe. |
 
@@ -143,7 +145,7 @@ Unknown message types are ignored. Malformed JSON is ignored.
 |---------|---------|
 | `{"type": "pong"}` | Reply to `ping`. |
 | `{"type": "status", "state": "running" \| "exited" \| "errored" \| "stopped", "rows": int, "cols": int}` | Sent right after the connection is established; `rows`/`cols` echo the negotiated size. |
-| `{"type": "error", "message": "..."}` | A recoverable error, e.g. "session already attached". |
+| `{"type": "error", "message": "..."}` | Error such as "session already attached"; attach failures are followed by a `1008` close. |
 
 ### Connection sequence
 
@@ -159,11 +161,11 @@ Unknown message types are ignored. Malformed JSON is ignored.
 
 ### Reconnection
 
-The frontend reconnects with exponential backoff and jitter: 1s initial
-delay, doubling up to a 30s cap, ±20% jitter so several tabs do not
-reconnect in lockstep. A fresh `resize` is sent after every reconnect so the
-server emits a redraw. Because the persistent state lives in `tmux` rather
-than in the socket, reconnecting restores the live session.
+The frontend reconnects with exponential backoff: a 1s initial base delay
+doubling to a 30s base cap, with ±20% jitter applied afterward (up to 36s).
+This avoids several tabs reconnecting in lockstep. A fresh `resize` is sent
+after every reconnect. Because persistent state lives in `tmux` rather than
+the socket, reconnecting reattaches to the live session.
 
 ## Status values
 
@@ -172,4 +174,4 @@ than in the socket, reconnecting restores the live session.
 | `running` | the `tmux` session exists and the command process is alive |
 | `exited` | the row persists but the command or `tmux` session has ended |
 | `stopped` | the user stopped the session; the row is kept for status/history |
-| `errored` | the backend could not create or attach the session cleanly |
+| `errored` | declared status value; current create/attach failures return errors rather than assigning it |

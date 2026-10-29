@@ -14,6 +14,10 @@ sessions with `tmux new-session -d` and attaches to them with
 `tmux attach-session`. If `tmux` is missing, session creation fails with
 `tmux is not installed`.
 
+Install and authenticate GitHub Copilot CLI separately as the backend's
+service account if you want `copilot` sessions. A `bash` session needs no
+provider access; the app's local account does not authenticate to GitHub.
+
 ## Install
 
 ### 1. System packages (Debian/Ubuntu)
@@ -84,6 +88,11 @@ copilot-remote reset-password --username alice       # rotate a password
 
 ### 5. Frontend
 
+The commands below start from the repository root in separate shells;
+if continuing from the backend setup, return there first with `cd ..`.
+Distribution `nodejs` packages may be older than Node 20; check
+`node --version` and use an appropriate Node installation before proceeding.
+
 Development mode — Vite dev server on `http://localhost:5173`, proxying
 `/api` and `/ws` to `127.0.0.1:8000`:
 
@@ -133,12 +142,12 @@ The full schema lives in [`config.example.yaml`](../config.example.yaml).
 | `commands` | `[]` | Allowed commands. Bare names (`bash`) or absolute paths (`/usr/bin/copilot`). |
 | `session.output_buffer_bytes` | `131072` | 128 KB in-memory ring buffer per session, used by the dashboard preview. |
 | `session.status_poll_interval_seconds` | `5` | How often the background poller refreshes session status. |
-| `session.idle_timeout_seconds` | `0` | Declared in the schema but **not yet enforced**; sessions live until stopped, restarted or deleted. |
+| `session.idle_timeout_seconds` | `0` | Declared but **not enforced**; no idle expiry is implemented. Commands can still exit on their own. |
 | `session.multi_attach` | `shared` | `shared` = several browser tabs may attach; `reject` = a second attach is refused. |
 
 ### Environment variables
 
-Every setting can be overridden with a `COPILOT_REMOTE_` prefix; nested keys
+Settings accept the `COPILOT_REMOTE_` prefix; nested keys
 use a double underscore:
 
 ```bash
@@ -149,6 +158,12 @@ COPILOT_REMOTE_CONFIG=/etc/copilot-remote/config.yaml
 ```
 
 Precedence: environment variables > YAML file > field defaults.
+
+List-valued environment settings use JSON, for example
+`COPILOT_REMOTE_COMMANDS='["bash"]'`. A nested environment override replaces
+the corresponding top-level YAML section rather than deeply merging it;
+repeat any other non-default `session` settings you need in environment
+variables too.
 
 ## Remote access with Tailscale
 

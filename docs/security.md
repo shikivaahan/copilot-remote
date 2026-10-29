@@ -112,10 +112,11 @@ the cookie plus `SameSite=Strict`.
 
 `/ws/sessions/{id}`:
 
-* The `cr_session` cookie is validated **before** the connection is
-  upgraded. The handler accepts the socket and then closes it with code
-  `1008` (policy violation) so the browser receives an explicit close frame
-  rather than an opaque handshake failure.
+* The `cr_session` cookie is checked before `websocket.accept()`. If
+  authentication fails, the handler nevertheless accepts (upgrades) the
+  socket, then immediately closes it with `1008` (policy violation), without
+  attaching a PTY. This gives the browser an explicit close frame rather
+  than an opaque handshake failure.
 * An unknown session id is likewise closed with `1008`.
 * With `session.multi_attach: reject`, a second attachment is refused with
   an `error` frame followed by a `1008` close.
@@ -133,14 +134,15 @@ cross-site page from opening an authenticated socket.
   `os.path.realpath` on both sides and compared exactly; commands are
   compared byte-for-byte (with an extra `realpath` comparison for absolute
   paths). Anything not on the list is rejected with a `400`.
-* **No shell interpolation.** All subprocess calls pass argv lists. There is
-  no `shell=True` anywhere in `backend/app/`; `backend/tests/test_shell_safety.py`
-  parses the AST of every module in `app/` and fails the build if one
-  appears.
+* **Subprocess boundary.** Python subprocess calls pass argv lists, without
+  `shell=True`; `backend/tests/test_shell_safety.py` scans the AST of
+  `app/` for that keyword. This is not a shell sandbox: `tmux new-session`
+  receives the allowlisted command as one string, which tmux may interpret
+  using its shell-command semantics. Only configure trusted command entries.
 * **Session identity.** The `tmux` session name is a server-generated UUID.
-  It is regex-validated (`UUID_RE`) before every `tmux` call, and it is the
-  only identifier ever handed to `tmux`. The user-supplied session *name*
-  is a display label and never reaches a shell.
+  Creation, attachment, killing, liveness and capture operations validate it
+  with `UUID_RE`. The user-supplied session *name* is a display label and
+  is not used as a shell command or tmux target.
 * **Command hygiene.** The command is additionally rejected if it has
   surrounding whitespace, a NUL byte or a newline.
 * **Host privileges.** The terminal runs with the privileges of the backend
@@ -169,8 +171,8 @@ cross-site page from opening an authenticated socket.
 
 These are real gaps, not oversights hidden behind wording:
 
-* **No audit has been performed.** No penetration test, no third-party
-  review, no formal threat model document.
+* **No audit evidence is supplied here.** This source-based design reference
+  is not a penetration test, third-party review or hardening certification.
 * **No per-user session isolation.** Any authenticated account can list,
   stop, restart, delete and attach to *any* session. The model assumes a
   single trusted operator; multiple accounts are not a supported multi-user

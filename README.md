@@ -6,7 +6,7 @@ transport*: it moves bytes between a real PTY and a WebSocket and never
 inspects or parses Copilot's output. If Copilot adds a new slash command
 tomorrow, it works remotely with zero changes to this app.
 
-![A live Copilot CLI session rendered in the browser terminal](docs/assets/session-terminal.png)
+![Browser terminal crop from an existing Copilot CLI session](docs/assets/session-terminal.png)
 
 ## Why
 
@@ -126,7 +126,7 @@ not "public multi-tenant service".
   `openssl rand -hex 32`. Changing it invalidates all outstanding cookies.
 * Passwords are hashed with bcrypt (cost 12). The session cookie is
   `HttpOnly`, `Secure` in production and `SameSite=Strict`.
-* State-changing REST calls must carry `X-Requested-With: copilot-remote-app`;
+* State-changing REST calls except login require `X-Requested-With: copilot-remote-app`;
   unauthenticated WebSockets are accepted and immediately closed with code
   `1008`, without attaching a terminal.
 * Repository paths and commands are checked against server-side allowlists;

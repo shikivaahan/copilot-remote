@@ -145,7 +145,7 @@ Status values stored on the session row:
 | `running` | the `tmux` session exists and the command process is alive |
 | `exited` | the row persists but the command or `tmux` session has ended |
 | `stopped` | the user stopped the session; the row is kept for status/history |
-| `errored` | the backend could not create or attach the session cleanly |
+| `errored` | declared status value; current create/attach failures return errors rather than assigning it |
 
 ### Startup reconciliation
 
@@ -163,15 +163,23 @@ output ring buffers live in memory only, so the dashboard preview starts
 fresh after a restart (the preview endpoint falls back to
 `tmux capture-pane` when the buffer is empty).
 
+`Restart` is destructive: it removes the old database row and kills its
+`tmux` session, then creates a new UUID with the same name, repository and
+command. It does not resume the old process or preserve its output/history.
+If replacement creation fails, the old session has already been removed.
+Persistence assumes the host and `tmux` server survive; a host reboot or
+stopped `tmux` server does not recreate the command from SQLite.
+
 ### Concurrency model
 
-* All mutations of a single session go through that session's
-  `asyncio.Lock`.
-* A registry-wide `asyncio.Lock` guards additions and removals.
+* Per-session locks protect attach counters, output buffers and status
+  updates; they do not make complete stop/restart/delete operations atomic.
+* A registry-wide `asyncio.Lock` guards registry access.
 * The status poller is a single background task, ticking every
   `session.status_poll_interval_seconds` (default 5s).
-* Blocking `tmux`/`subprocess` calls are dispatched to a thread
-  (`asyncio.to_thread`) so the event loop is never blocked.
+* Session-manager `tmux` operations are dispatched through `asyncio.to_thread`,
+  and PTY reads use an executor. Some WebSocket writes, resize and signal
+  handling still run directly in the event loop.
 * `session.multi_attach` decides the attach policy: `shared` (default)
   allows several browser tabs on one `tmux` session, `reject` refuses a
   second attachment.
@@ -197,5 +205,5 @@ Full frame-by-frame details are in [api.md](api.md).
 * There is no server-side session ownership model beyond the single-user
   assumption (see [security.md](security.md)).
 * `idle_timeout_seconds` is declared in the configuration schema but is not
-  yet enforced by the session manager; sessions currently live until they
-  are stopped, restarted or deleted.
+  enforced by the session manager. There is no idle-expiry policy; a
+  command may still exit independently of stop/restart/delete.
